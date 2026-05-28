@@ -150,7 +150,7 @@ impl PreparedGizmoConfig {
         let view_projection = projection_matrix * view_matrix;
 
         let left_handed = if projection_matrix.z_axis.w == 0.0 {
-            // Orthographic: a positive Z scale normally indicates left-handed coords,
+            // A positive Z scale normally indicates left-handed coords,
             // but some engines (e.g. Bevy) swap near/far for reverse-Z depth, which
             // also flips the Z scale sign while remaining right-handed.
             // Disambiguate by checking the view matrix's actual handedness.
