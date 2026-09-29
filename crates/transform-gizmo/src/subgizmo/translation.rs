@@ -1,11 +1,11 @@
 use crate::math::{DVec3, intersect_plane, ray_to_ray, round_to_interval};
 
 use crate::subgizmo::common::{
-    draw_arrow, draw_circle, draw_plane, gizmo_color, gizmo_normal, inner_circle_radius,
+    draw_arrow, draw_circle, draw_plane, gizmo_color, gizmo_local_normal, inner_circle_radius,
     pick_arrow, pick_circle, pick_plane, plane_bitangent, plane_global_origin, plane_tangent,
 };
 use crate::subgizmo::{SubGizmoConfig, SubGizmoKind, common::TransformKind};
-use crate::{GizmoDirection, GizmoDrawData, GizmoMode, GizmoOrientation, GizmoResult, gizmo::Ray};
+use crate::{GizmoDirection, GizmoDrawData, GizmoMode, GizmoResult, gizmo::Ray};
 
 use super::common::PickResult;
 
@@ -77,7 +77,7 @@ impl SubGizmoKind for Translation {
             point_on_axis(subgizmo, ray)
         } else {
             point_on_plane(
-                gizmo_normal(&subgizmo.config, subgizmo.direction),
+                gizmo_local_normal(&subgizmo.config, subgizmo.direction),
                 plane_global_origin(&subgizmo.config, subgizmo.direction),
                 ray,
             )?
@@ -94,14 +94,8 @@ impl SubGizmoKind for Translation {
             new_point = subgizmo.state.start_point + new_delta;
         }
 
-        let mut translation_delta = new_point - subgizmo.state.last_point;
-        let mut total_translation = new_point - subgizmo.state.start_point;
-
-        if subgizmo.config.orientation() == GizmoOrientation::Local {
-            let inverse_rotation = subgizmo.config.rotation.inverse();
-            translation_delta = inverse_rotation * translation_delta;
-            total_translation = inverse_rotation * total_translation;
-        }
+        let translation_delta = new_point - subgizmo.state.last_point;
+        let total_translation = new_point - subgizmo.state.start_point;
 
         subgizmo.state.last_point = new_point;
         subgizmo.state.current_delta = new_delta;
@@ -136,7 +130,7 @@ impl SubGizmoKind for Translation {
 /// Finds the nearest point on line that points in translation subgizmo direction
 fn point_on_axis(subgizmo: &SubGizmoConfig<Translation>, ray: Ray) -> DVec3 {
     let origin = subgizmo.config.translation;
-    let direction = gizmo_normal(&subgizmo.config, subgizmo.direction);
+    let direction = gizmo_local_normal(&subgizmo.config, subgizmo.direction);
 
     let (_ray_t, subgizmo_t) = ray_to_ray(ray.origin, ray.direction, origin, direction);
 
@@ -169,17 +163,13 @@ fn snap_translation_vector(subgizmo: &SubGizmoConfig<Translation>, new_delta: DV
 }
 
 fn snap_translation_plane(subgizmo: &SubGizmoConfig<Translation>, new_delta: DVec3) -> DVec3 {
-    let mut bitangent = plane_bitangent(subgizmo.direction);
-    let mut tangent = plane_tangent(subgizmo.direction);
-    if subgizmo.config.local_space() {
-        bitangent = subgizmo.config.rotation * bitangent;
-        tangent = subgizmo.config.rotation * tangent;
-    }
+    let bitangent = plane_bitangent(subgizmo.direction);
+    let tangent = plane_tangent(subgizmo.direction);
     let cb = new_delta.cross(-bitangent);
     let ct = new_delta.cross(tangent);
     let lb = cb.length();
     let lt = ct.length();
-    let n = gizmo_normal(&subgizmo.config, subgizmo.direction);
+    let n = gizmo_local_normal(&subgizmo.config, subgizmo.direction);
 
     if lb > 1e-5 && lt > 1e-5 {
         bitangent * round_to_interval(lt, subgizmo.config.snap_distance as f64) * (ct / lt).dot(n)

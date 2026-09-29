@@ -283,10 +283,9 @@ impl Gizmo {
         transform: &Transform,
         start_transform: &Transform,
     ) -> Transform {
-        let delta = match self.config.orientation() {
-            GizmoOrientation::Global => DVec3::from(delta),
-            GizmoOrientation::Local => DQuat::from(start_transform.rotation) * DVec3::from(delta),
-        };
+        // Translation is always applied in world space (global), regardless of
+        // gizmo orientation. Only rotation honors the Local orientation.
+        let delta = DVec3::from(delta);
 
         Transform {
             scale: start_transform.scale,
@@ -301,19 +300,15 @@ impl Gizmo {
         start_transform: &Transform,
         scale: mint::Vector3<f64>,
     ) -> Transform {
-        let new_scale = match self.config.orientation() {
-            GizmoOrientation::Global => {
-                let scaled_transform_mat = DMat4::from_scale(scale.into())
-                    * DMat4::from_scale_rotation_translation(
-                        DVec3::from(start_transform.scale),
-                        DQuat::from(start_transform.rotation),
-                        DVec3::from(start_transform.translation),
-                    );
-                let (scale, _, _) = scaled_transform_mat.to_scale_rotation_translation();
-                scale
-            }
-            GizmoOrientation::Local => DVec3::from(start_transform.scale) * DVec3::from(scale),
-        };
+        // Scale always acts in world space (global), regardless of gizmo
+        // orientation. Only rotation honors the Local orientation.
+        let scaled_transform_mat = DMat4::from_scale(scale.into())
+            * DMat4::from_scale_rotation_translation(
+                DVec3::from(start_transform.scale),
+                DQuat::from(start_transform.rotation),
+                DVec3::from(start_transform.translation),
+            );
+        let (new_scale, _, _) = scaled_transform_mat.to_scale_rotation_translation();
 
         Transform {
             scale: new_scale.into(),

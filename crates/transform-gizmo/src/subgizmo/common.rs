@@ -91,7 +91,7 @@ pub(crate) fn pick_arrow(
 ) -> PickResult {
     let ray_length = 1e+14;
 
-    let direction = gizmo_normal(config, direction);
+    let direction = gizmo_local_normal(config, direction);
 
     let mut arrow_params = arrow_params(config, direction, mode);
     arrow_params.start += config.translation;
@@ -127,7 +127,7 @@ pub(crate) fn pick_plane(
 ) -> PickResult {
     let origin = plane_global_origin(config, direction);
 
-    let normal = gizmo_normal(config, direction);
+    let normal = gizmo_local_normal(config, direction);
 
     let (t, dist_from_origin) = ray_to_plane_origin(normal, origin, ray.origin, ray.direction);
 
@@ -177,7 +177,7 @@ pub(crate) fn draw_arrow(
     direction: GizmoDirection,
     mode: GizmoMode,
 ) -> GizmoDrawData {
-    let opacity = arrow_visibility(config, gizmo_normal(config, direction));
+    let opacity = arrow_visibility(config, gizmo_local_normal(config, direction));
 
     if opacity <= 1e-4 {
         return GizmoDrawData::default();
@@ -185,11 +185,9 @@ pub(crate) fn draw_arrow(
 
     let color = gizmo_color(config, focused, direction).gamma_multiply(opacity as _);
 
-    let transform = if config.local_space() {
-        DMat4::from_rotation_translation(config.rotation, config.translation)
-    } else {
-        DMat4::from_translation(config.translation)
-    };
+    // Translation/scale arrows and planes are always world-aligned (global);
+    // only the rotation rings follow the object's local frame.
+    let transform = DMat4::from_translation(config.translation);
 
     let shape_builder = ShapeBuilder::new(
         config.view_projection * transform,
@@ -247,11 +245,9 @@ pub(crate) fn draw_plane(
 
     let color = gizmo_color(config, focused, direction).gamma_multiply(opacity as _);
 
-    let transform = if config.local_space() {
-        DMat4::from_rotation_translation(config.rotation, config.translation)
-    } else {
-        DMat4::from_translation(config.translation)
-    };
+    // Translation/scale arrows and planes are always world-aligned (global);
+    // only the rotation rings follow the object's local frame.
+    let transform = DMat4::from_translation(config.translation);
 
     let shape_builder = ShapeBuilder::new(
         config.view_projection * transform,
@@ -360,17 +356,13 @@ pub(crate) fn plane_global_origin(
     config: &PreparedGizmoConfig,
     direction: GizmoDirection,
 ) -> DVec3 {
-    let mut origin = plane_local_origin(config, direction);
-    if config.local_space() {
-        origin = config.rotation * origin;
-    }
-    origin + config.translation
+    plane_local_origin(config, direction) + config.translation
 }
 
 pub(crate) fn plane_visibility(config: &PreparedGizmoConfig, direction: GizmoDirection) -> f64 {
     let dot = config
         .eye_to_model_dir
-        .dot(gizmo_normal(config, direction))
+        .dot(gizmo_local_normal(config, direction))
         .abs();
     (1.0 - ((1.0 - dot) - *PLANE_FADE.start()) / (*PLANE_FADE.end() - *PLANE_FADE.start())).min(1.0)
 }
