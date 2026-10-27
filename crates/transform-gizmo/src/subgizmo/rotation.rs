@@ -15,6 +15,9 @@ use super::Picked;
 
 pub(crate) type RotationSubGizmo = SubGizmoConfig<Rotation>;
 
+/// Opacity of the far half of a rotation ring, relative to the near half.
+const FAR_ARC_ALPHA: f32 = 0.3;
+
 #[derive(Debug, Copy, Clone, Hash)]
 pub(crate) struct RotationParams {
     pub direction: GizmoDirection,
@@ -158,6 +161,21 @@ impl SubGizmoKind for Rotation {
 
         if !subgizmo.active {
             let angle = arc_angle(subgizmo);
+            if angle < PI {
+                // The far half, dimmed, so the ring reads as a whole circle
+                // without its far side passing for the near one. The gizmo
+                // draws over the scene, so a far half as bright as the near
+                // one looks like it is in front of the model. Drawn first so
+                // the near half covers it where they cross.
+                draw_data += shape_builder
+                    .arc(
+                        radius,
+                        FRAC_PI_2 + angle,
+                        FRAC_PI_2 - angle + TAU,
+                        (stroke.0, color.linear_multiply(FAR_ARC_ALPHA)),
+                    )
+                    .into();
+            }
             draw_data += shape_builder
                 .arc(radius, FRAC_PI_2 - angle, FRAC_PI_2 + angle, stroke)
                 .into();
@@ -251,8 +269,9 @@ impl SubGizmoKind for Rotation {
 }
 
 /// Calculates angle of the rotation axis arc.
-/// The arc is a semicircle, which turns into a full circle when viewed
-/// directly from the front.
+/// The arc is the near semicircle, which turns into a full circle when viewed
+/// directly from the front. The rest of the ring is drawn dimmed, and only
+/// this arc can be picked.
 fn arc_angle(subgizmo: &SubGizmoConfig<Rotation>) -> f64 {
     let dot = gizmo_normal(&subgizmo.config, subgizmo.direction)
         .dot(subgizmo.config.view_forward())
@@ -349,5 +368,58 @@ fn arc_radius(subgizmo: &SubGizmoConfig<Rotation>) -> f64 {
         outer_circle_radius(&subgizmo.config)
     } else {
         (subgizmo.config.scale_factor * subgizmo.config.visuals.gizmo_size) as f64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::math::Transform;
+    use crate::prelude::*;
+
+    /// The largest angular gap, in radians, between the drawn vertices of a
+    /// gizmo that has only the `mode` ring, as seen around its screen centre.
+    fn widest_gap(mode: GizmoMode, eye: DVec3) -> f64 {
+        let viewport = Rect::from_min_max((0.0, 0.0).into(), (800.0, 600.0).into());
+        let mut gizmo = Gizmo::new(GizmoConfig {
+            view_matrix: DMat4::look_at_rh(eye, DVec3::ZERO, DVec3::Y).into(),
+            projection_matrix: DMat4::perspective_rh(1.0, 800.0 / 600.0, 0.1, 100.0).into(),
+            viewport,
+            modes: EnumSet::only(mode),
+            ..Default::default()
+        });
+        gizmo.update(GizmoInteraction::default(), &[Transform::default()]);
+
+        let centre = viewport.center();
+        let mut angles: Vec<f64> = gizmo
+            .draw()
+            .vertices
+            .iter()
+            .map(|[x, y]| f64::from(y - centre.y).atan2(f64::from(x - centre.x)))
+            .collect();
+        angles.sort_by(f64::total_cmp);
+        let wrap = angles[0] + TAU - angles[angles.len() - 1];
+        angles
+            .windows(2)
+            .map(|pair| pair[1] - pair[0])
+            .fold(wrap, f64::max)
+    }
+
+    /// Spec test: every ring is a whole circle from every side, above and
+    /// below, not the half facing the camera.
+    #[test]
+    fn rotation_rings_are_complete_from_every_side() {
+        let eyes = [
+            DVec3::new(2.0, 5.0, 8.0),
+            DVec3::new(3.0, -6.0, 2.0),
+            DVec3::new(-4.0, -3.0, -5.0),
+            DVec3::new(6.0, 1.5, -2.0),
+        ];
+        for mode in [GizmoMode::RotateX, GizmoMode::RotateY, GizmoMode::RotateZ] {
+            for eye in eyes {
+                let gap = widest_gap(mode, eye);
+                assert!(gap < 0.5, "{mode:?} from {eye}: a {gap:.2} rad gap");
+            }
+        }
     }
 }
